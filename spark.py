@@ -4,21 +4,12 @@ from pyspark.sql.types import StructType, StructField, DoubleType
 from pyspark.ml.classification import RandomForestClassifier
 from pyspark.ml.feature import VectorAssembler
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
-from kafka import KafkaConsumer
 
-spark = (
-    SparkSession.Builder()
-    .appName("FraudDetection")
-    .config("spark.executor.memory", "4g")
-    .config("spark.driver.memory", "4g")
-    .config("spark.python.worker.memory", "4g")
-    .config("spark.driver.maxResultSize", "4g")
-    .config("spark.memory.offHeap.enabled", "true")
-    .config("spark.memory.offHeap.size", "4g")
-    .config("spark.sql.shuffle.partitions", "10")
-    .config("spark.default.parallelism", "10")
+spark = SparkSession\
+    .builder\
+    .appName("FraudDetection")\
+    .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.4")\
     .getOrCreate()
-)
 
 # Load the dataset
 data = spark.read.csv("preprocessed_data.csv", inferSchema=True, header=True)
@@ -77,10 +68,6 @@ print(f"Precision: {precision:.4f}")
 print(f"Recall: {recall:.4f}")
 print(f"F1 Score: {f1_score:.4f}")
 
-consumer = KafkaConsumer("financialData")
-
-print("Reading incoming messages")
-
 # Define the schema for the JSON message
 schema = StructType(
     [
@@ -111,14 +98,10 @@ parsed_df = (
     .select("data.*")
 )
 
-feature_columns = ["Amount", "Hour", "DayOfWeek", "Month", "DayOfMonth"]
-assembler = VectorAssembler(inputCols=feature_columns, outputCol="features")
-
-
 # Process the data (e.g., predictions)
 def process_batch(batch_df, epoch_id):
     # Assemble features
-    features_df = assembler.transform(batch_df)
+    features_df = assembler.transform(batch_df).withColumnRenamed("Target", "label")
 
     # Predict using the loaded model
     predictions = model.transform(features_df)
@@ -128,5 +111,3 @@ def process_batch(batch_df, epoch_id):
 # Start the streaming query
 query = parsed_df.writeStream.foreachBatch(process_batch).start()
 query.awaitTermination()
-
-spark.stop()
